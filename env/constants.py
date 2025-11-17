@@ -1,0 +1,2 @@
+CELL_SIZE = 6
+CAR_GAP = 15
