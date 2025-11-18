@@ -3,6 +3,9 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
+# Restrict which bot folders are loaded. Add/remove entries to run specific bots.
+TARGET_MODEL_NAMES = ["my_model"]
+
 def load_single_model(car_folder):
     try:
         model_file = car_folder / "model.py"
@@ -32,7 +35,7 @@ def load_single_model(car_folder):
         print(f"Failed to load {car_folder.name}: {e}")
         return None
 
-def load_models_concurrent(models_dir="models", max_workers=4):
+def load_models_concurrent(models_dir="models", max_workers=4, target_names=None):
     base_path = Path(models_dir)
     
     if not base_path.exists():
@@ -40,9 +43,13 @@ def load_models_concurrent(models_dir="models", max_workers=4):
         return []
     
     car_folders = [f for f in base_path.iterdir() if f.is_dir()]
+    selected_names = target_names or TARGET_MODEL_NAMES
+    if selected_names:
+        allowed = {name for name in selected_names}
+        car_folders = [f for f in car_folders if f.name in allowed]
     
     if not car_folders:
-        print("No model folders found!")
+        print("No model folders matched selection!")
         return []
     
     print(f"\nLoading {len(car_folders)} models concurrently...")
@@ -69,7 +76,7 @@ def load_models_concurrent(models_dir="models", max_workers=4):
 if __name__ == "__main__":
     from env.game import F1Game
     game = F1Game()
-    models = load_models_concurrent("models", max_workers=4)  
+    models = load_models_concurrent("models", max_workers=2, target_names=TARGET_MODEL_NAMES)
     if not models:
         print("No models loaded! Exiting.")
         exit(1)

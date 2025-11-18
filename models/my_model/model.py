@@ -4,23 +4,26 @@ import numpy as np
 import os
 from collections import deque
 
+_NO_MOVE_THRESHOLD_STEPS = 120
+_REVERSE_RECOVERY_STEPS = 30
+_BOT_STATE = {}
 
 def _build_discrete_action_space():
     """12 discrete actions: (throttle, steering, brake) with gradual steering control."""
     return [
-        {'throttle': 1.0, 'steer': 0.0, 'brake': False , 'boost': True},             # 0: forward
-        {'throttle': 1.0, 'steer': 0.4, 'brake': False, 'boost': True},             # 1: forward + slight right
-        {'throttle': 1.0, 'steer': -0.4, 'brake': False,'boost': True},            # 2: forward + slight left
-        {'throttle': 1.0, 'steer': 1.0, 'brake': False,'boost': True},             # 3: forward + right
-        {'throttle': 1.0, 'steer': -1.0, 'brake': False,'boost': True},            # 4: forward + left
-        {'throttle': 1.0, 'steer': 1.5, 'brake': False},             # 5: forward + hard right
-        {'throttle': 1.0, 'steer': -1.5, 'brake': False},            # 6: forward + hard left
-        {'throttle': 0.0, 'steer': 0.0, 'brake': False},             # 7: idle
-        {'throttle': 0.0, 'steer': 1.0, 'brake': False},             # 8: turn right
-        {'throttle': 0.0, 'steer': -1.0, 'brake': False},            # 9: turn left
-        {'throttle': 0.0, 'steer': 0.0, 'brake': True},              # 10: brake
-        {'throttle': 1.0, 'steer': 0.0, 'brake': True, 'boost': True},              # 11: forward + brake
-        {'throttle': 1.0, 'steer': 0.0, 'brake': False, 'boost': True}, # 12: forward + boost request
+        {'throttle': 1.0, 'steer': 0.0, 'brake': False , 'boost': True},          
+        {'throttle': 1.0, 'steer': 0.4, 'brake': False, 'boost': True},                                        
+        {'throttle': 1.0, 'steer': -0.4, 'brake': False,'boost': True},                                      
+        {'throttle': 1.0, 'steer': 1.0, 'brake': False,'boost': True},                                 
+        {'throttle': 1.0, 'steer': -1.0, 'brake': False,'boost': True},                               
+        {'throttle': 1.0, 'steer': 1.5, 'brake': False},                                      
+        {'throttle': 1.0, 'steer': -1.5, 'brake': False},                                    
+        {'throttle': 0.0, 'steer': 0.0, 'brake': False},                      
+        {'throttle': 0.0, 'steer': 1.0, 'brake': False},                            
+        {'throttle': 0.0, 'steer': -1.0, 'brake': False},                          
+        {'throttle': 0.0, 'steer': 0.0, 'brake': True},                         
+        {'throttle': 1.0, 'steer': 0.0, 'brake': True, 'boost': True},                                   
+        {'throttle': 1.0, 'steer': 0.0, 'brake': False, 'boost': True},                              
     ]
 
 
@@ -54,7 +57,7 @@ def _raycast_sensors(car, num_rays=5, max_distance=300.0):
     distances_out = np.empty(len(angles), dtype=np.float32)
 
     for idx, offset in enumerate(angles):
-        key = (int(base_angle), offset)  # coarse cache key (angle rounded to int)
+        key = (int(base_angle), offset)                                           
         if key not in _ANGLE_CACHE:
             rad = math.radians(base_angle + offset)
             _ANGLE_CACHE[key] = (math.sin(rad), math.cos(rad))
@@ -62,10 +65,10 @@ def _raycast_sensors(car, num_rays=5, max_distance=300.0):
 
         hit_distance = None
         for dist in _RAYCAST_DISTANCE_STEPS:
-            # Use sin/cos directly (y axis inverted for cos component)
+                                                                      
             check_x = float(x + dist * s)
             check_y = float(y - dist * c)
-            # Collision / drivable check
+                                        
             blocked = False
             if track.check_collision(check_x, check_y):
                 blocked = True
@@ -84,13 +87,13 @@ def _raycast_sensors(car, num_rays=5, max_distance=300.0):
                 for other in game._cars:
                     if other is car:
                         continue
-                    # Safely test hitbox collision; cast to ints for Rect
+                                                                         
                     try:
                         if other._hitbox.collidepoint(int(check_x), int(check_y)):
                             blocked = True
                             break
                     except Exception:
-                        # If collidepoint fails, skip this other car
+                                                                    
                         continue
                 if blocked:
                     hit_distance = dist
@@ -107,20 +110,20 @@ def _obs_to_state(obs, car):
     """
     import math
     
-    # Raycasts (12 normalized distances: [-150,-120,-90,-60,-30,-15,0,15,30,60,90,120])
+                                                                                       
     rays = _raycast_sensors(car, num_rays=12, max_distance=300.0)
     
-    # Speed and lap progress (2 features)
-    speed = float(obs.get('speed', 0.0)) / 5.0  # normalize by max speed
+                                         
+    speed = float(obs.get('speed', 0.0)) / 5.0                          
     lap_progress = float(obs.get('lap_progress', 0.0))
     
-    # Nearest car detection (2 features: distance and angle)
+                                                            
     all_coords = obs.get('all_coords', [])
     car_x, car_y = car.get_position()
     car_angle = car._angle
     
     if all_coords:
-        # Find nearest car
+                          
         min_dist = float('inf')
         nearest_angle = 0.0
         
@@ -131,19 +134,19 @@ def _obs_to_state(obs, car):
             
             if dist < min_dist:
                 min_dist = dist
-                # Calculate relative angle to other car
-                angle_to_car = math.degrees(math.atan2(dx, -dy))  # -dy because y is inverted
+                                                       
+                angle_to_car = math.degrees(math.atan2(dx, -dy))                             
                 relative_angle = angle_to_car - car_angle
-                # Normalize to [-180, 180]
+                                          
                 while relative_angle > 180:
                     relative_angle -= 360
                 while relative_angle < -180:
                     relative_angle += 360
-                nearest_angle = relative_angle / 180.0  # normalize to [-1, 1]
+                nearest_angle = relative_angle / 180.0                        
         
-        nearest_car_dist = min(1.0, min_dist / 300.0)  # normalize by max detection range
+        nearest_car_dist = min(1.0, min_dist / 300.0)                                    
     else:
-        nearest_car_dist = 1.0  # no cars = max distance
+        nearest_car_dist = 1.0                          
         nearest_angle = 0.0
     
     state = np.concatenate([rays, [speed, lap_progress, nearest_car_dist, nearest_angle]], axis=0)
@@ -161,7 +164,7 @@ def _build_q_network(state_dim, num_actions):
     model = tf.keras.Sequential([
         tf.keras.layers.Input(shape=(state_dim,)),
         tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.1),  # Light dropout to prevent overfitting
+        tf.keras.layers.Dropout(0.1),                                        
         tf.keras.layers.Dense(256, activation='relu'),
         tf.keras.layers.Dropout(0.1),
         tf.keras.layers.Dense(256, activation='relu'),
@@ -173,17 +176,17 @@ def _build_q_network(state_dim, num_actions):
     return model
 
 
-# Global state: Q-network, replay buffer, epsilon
+                                                 
 _Q_NET = None
 _TARGET_Q_NET = None
 _REPLAY_BUFFER = deque(maxlen=100000)
 _WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), 'q_weights.weights.h5')
-_EPSILON = 0.275  # Lower starting exploration
-_EPSILON_DECAY = 0.9970  # Faster decay (reach near-min sooner)
+_EPSILON = 0.275                              
+_EPSILON_DECAY = 0.9970                                        
 _EPSILON_MIN = 0.01
 _ACTIONS = _build_discrete_action_space()
-_NUM_ACTIONS = len(_ACTIONS)  # 13 actions (added forward+boost)
-_STATE_DIM = 16  # 12 rays + speed + lap_progress + nearest_car_dist + nearest_car_angle
+_NUM_ACTIONS = len(_ACTIONS)                                    
+_STATE_DIM = 16                                                                         
 
 
 def _ensure_q_net():
@@ -191,7 +194,7 @@ def _ensure_q_net():
     if _Q_NET is None:
         print("[INIT] Building Q-network...")
         _Q_NET = _build_q_network(_STATE_DIM, _NUM_ACTIONS)
-        _Q_NET(tf.zeros((1, _STATE_DIM)))  # build to create weights
+        _Q_NET(tf.zeros((1, _STATE_DIM)))                           
         _TARGET_Q_NET = _build_q_network(_STATE_DIM, _NUM_ACTIONS)
         _TARGET_Q_NET(tf.zeros((1, _STATE_DIM)))
         _TARGET_Q_NET.set_weights(_Q_NET.get_weights())
@@ -233,16 +236,45 @@ def model(car):
         obs = car.get_observation()
     except Exception:
         return
+
+    cid = id(car)
+    x, y = car.get_position()
+    st = _BOT_STATE.setdefault(cid, {
+        'last_pos': (x, y),
+        'no_move_steps': 0,
+        'reverse_timer': 0,
+    })
+
+    last_x, last_y = st['last_pos']
+    dx = x - last_x
+    dy = y - last_y
+    moved = (dx*dx + dy*dy) ** 0.5
+    if moved < 1.0:
+        st['no_move_steps'] += 1
+    else:
+        st['no_move_steps'] = 0
+    st['last_pos'] = (x, y)
+
+    if st['reverse_timer'] > 0 or st['no_move_steps'] >= _NO_MOVE_THRESHOLD_STEPS:
+        if st['reverse_timer'] <= 0:
+            st['reverse_timer'] = _REVERSE_RECOVERY_STEPS
+            st['no_move_steps'] = 0
+        st['reverse_timer'] -= 1
+        try:
+            back(car)
+        except Exception:
+            pass
+        return
     
     state = _obs_to_state(obs, car)
     _ensure_q_net()
     
-    # Greedy action selection: pick action with highest Q-value
+                                                               
     q_vals = _Q_NET(tf.expand_dims(state, axis=0)).numpy()[0]
     action_idx = np.argmax(q_vals)
     action = _ACTIONS[action_idx]
     
-    # Apply action via environment controls
+                                           
     if action['throttle'] > 0.5:
         forward(car)
     elif action['throttle'] < -0.5:
@@ -255,7 +287,7 @@ def model(car):
     
     if action['brake']:
         brake(car)
-    # Trigger boost if present in action dict
+                                             
     if action.get('boost'):
         try:
             boost(car)
@@ -295,7 +327,7 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
         ep_reward = 0.0
         
         for step in range(max_steps):
-            # Epsilon-greedy: explore with prob epsilon, exploit otherwise
+                                                                          
             if np.random.rand() < _EPSILON:
                 action_idx = np.random.randint(0, _NUM_ACTIONS)
             else:
@@ -307,34 +339,34 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
             next_state = _obs_to_state(next_obs, car)
             ep_reward += reward
             
-            # Store transition in replay buffer
+                                               
             _REPLAY_BUFFER.append((state, action_idx, reward, next_state, done))
             
-            # Train on mini-batch from replay buffer (Bellman update)
+                                                                     
             if len(_REPLAY_BUFFER) >= batch_size:
-                # Sample mini-batch
+                                   
                 indices = np.random.choice(len(_REPLAY_BUFFER), batch_size, replace=False)
                 batch = [_REPLAY_BUFFER[i] for i in indices]
                 states, actions, rewards, next_states, dones = zip(*batch)
                 
-                # Tensorize
+                           
                 states = tf.convert_to_tensor(np.stack(states), dtype=tf.float32)
                 actions = tf.convert_to_tensor(actions, dtype=tf.int32)
                 rewards = tf.convert_to_tensor(rewards, dtype=tf.float32)
                 next_states = tf.convert_to_tensor(np.stack(next_states), dtype=tf.float32)
                 dones = tf.convert_to_tensor(dones, dtype=tf.float32)
                 
-                # Bellman update: Q(s,a) <- R + gamma * max_a' Q(s',a')
+                                                                       
                 with tf.GradientTape() as tape:
                     q_vals = _Q_NET(states)
                     q_target = tf.identity(q_vals)
                     
-                    # Use target network for stability
+                                                      
                     next_q_vals = _TARGET_Q_NET(next_states)
                     max_next_q = tf.reduce_max(next_q_vals, axis=1)
                     td_target = rewards + gamma * max_next_q * (1.0 - dones)
                     
-                    # Update Q-values for selected actions
+                                                          
                     for i in range(batch_size):
                         q_target = tf.tensor_scatter_nd_update(
                             q_target,
@@ -342,10 +374,10 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
                             [td_target[i]]
                         )
                     
-                    # MSE loss
+                              
                     loss = tf.reduce_mean((q_vals - q_target) ** 2)
                 
-                # Gradient update
+                                 
                 grads = tape.gradient(loss, _Q_NET.trainable_variables)
                 optimizer.apply_gradients(zip(grads, _Q_NET.trainable_variables))
             
@@ -353,6 +385,15 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
             if done:
                 break
         
+                                                         
+        _EPSILON = max(_EPSILON_MIN, _EPSILON * _EPSILON_DECAY)
+        
+                                                              
+        if (ep + 1) % target_update_freq == 0:
+            _TARGET_Q_NET.set_weights(_Q_NET.get_weights())
+        
+                                   
+       
         # Decay epsilon (exploration decreases over time)
         _EPSILON = max(_EPSILON_MIN, _EPSILON * _EPSILON_DECAY)
         
