@@ -4,7 +4,7 @@ import numpy as np
 import os
 from collections import deque
 
-_NO_MOVE_THRESHOLD_STEPS = 120
+_NO_MOVE_THRESHOLD_STEPS = 100
 _REVERSE_RECOVERY_STEPS = 30
 _BOT_STATE = {}
 
@@ -405,5 +405,6 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
         print(f"Episode {ep+1}/{episodes} steps={step+1} reward={ep_reward:.1f} epsilon={_EPSILON:.4f}")
         if (ep + 1) % 10 == 0:
             save_weights()
+
 
 
