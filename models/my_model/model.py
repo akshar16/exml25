@@ -4,10 +4,6 @@ import numpy as np
 import os
 from collections import deque
 
-_NO_MOVE_THRESHOLD_STEPS = 240
-_REVERSE_RECOVERY_STEPS = 5
-_BOT_STATE = {}
-
 def _build_discrete_action_space():
     """12 discrete actions: (throttle, steering, brake) with gradual steering control."""
     return [
@@ -236,35 +232,6 @@ def model(car):
         obs = car.get_observation()
     except Exception:
         return
-
-    cid = id(car)
-    x, y = car.get_position()
-    st = _BOT_STATE.setdefault(cid, {
-        'last_pos': (x, y),
-        'no_move_steps': 0,
-        'reverse_timer': 0,
-    })
-
-    last_x, last_y = st['last_pos']
-    dx = x - last_x
-    dy = y - last_y
-    moved = (dx*dx + dy*dy) ** 0.5
-    if moved < 1.0:
-        st['no_move_steps'] += 1
-    else:
-        st['no_move_steps'] = 0
-    st['last_pos'] = (x, y)
-
-    if st['reverse_timer'] > 0 or st['no_move_steps'] >= _NO_MOVE_THRESHOLD_STEPS:
-        if st['reverse_timer'] <= 0:
-            st['reverse_timer'] = _REVERSE_RECOVERY_STEPS
-            st['no_move_steps'] = 0
-        st['reverse_timer'] -= 1
-        try:
-            back(car)
-        except Exception:
-            pass
-        return
     
     state = _obs_to_state(obs, car)
     _ensure_q_net()
@@ -276,7 +243,13 @@ def model(car):
     
                                            
     if action['throttle'] > 0.5:
+        # Always boost when accelerating forward
+        boost(car)
         forward(car)
+        try:
+            boost(car)
+        except Exception:
+            pass
     elif action['throttle'] < -0.5:
         back(car)
     
@@ -287,12 +260,12 @@ def model(car):
     
     if action['brake']:
         brake(car)
-                                             
-    if action.get('boost'):
-        try:
-            boost(car)
-        except Exception:
-            pass
+    
+    # Hard-coded boost: always try to boost regardless of action
+    try:
+        boost(car)
+    except Exception:
+        pass
 
 
 def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
@@ -405,8 +378,3 @@ def train_q_learning(env_reset_fn, env_step_fn, episodes=500, max_steps=2000,
         print(f"Episode {ep+1}/{episodes} steps={step+1} reward={ep_reward:.1f} epsilon={_EPSILON:.4f}")
         if (ep + 1) % 10 == 0:
             save_weights()
-
-
-
-
-
